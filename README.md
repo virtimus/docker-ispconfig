@@ -1,3 +1,6 @@
+## Project forked and tuned to i3c.cloud platform. Use original repo for standalone usage
+
+
 ISPConfig is an Open source, BSD-licensed, hosting control panel for Linux, designed to manage Apache, BIND, FTP, and databases, supporting many Linux distributions.
 
 Installation followed official tutorial : https://www.howtoforge.com/tutorial/perfect-server-debian-8-4-jessie-apache-bind-dovecot-ispconfig-3-1/
