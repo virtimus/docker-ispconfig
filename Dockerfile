@@ -46,20 +46,18 @@ ARG	SUPERVISOR_PWD="password"
 #RUN echo '. ~/.bash_aliases' >> /root/.bashrc && \
 #	echo "export TERM=xterm" >> /root/.bashrc
 
-# --- 0.2 Supervisor
+# --- 0.2 Supervisor# --- 0.3 locales
 ADD ./fs/root/config /root/config
 ADD ./fs/usr/local/bin /usr/local/bin
 ADD ./fs/etc/supervisor /etc/supervisor
-RUN sed -i "s/{{ SUPERVISOR_LOGIN }}/${SUPERVISOR_LOGIN}/g" /etc/supervisor/supervisord.conf
-RUN sed -i "s/{{ SUPERVISOR_PWD }}/${SUPERVISOR_PWD}/g" /etc/supervisor/supervisord.conf
-ADD ./fs/etc/cron.daily/sql_backup.sh /etc/cron.daily/sql_backup.sh
-RUN chmod 755 /usr/local/bin/*
-RUN mkdir -p /var/run/sshd /var/log/supervisor /var/run/supervisor
-RUN mv /bin/systemctl /bin/systemctl.backup
 ADD ./fs/bin/systemctl /bin/systemctl
-
-# --- 0.3 locales
-RUN apt-get update && apt-get install -y locales && rm -rf /var/lib/apt/lists/* \
+ADD ./fs/etc/cron.daily/sql_backup.sh /etc/cron.daily/sql_backup.sh
+RUN sed -i "s/{{ SUPERVISOR_LOGIN }}/${SUPERVISOR_LOGIN}/g" /etc/supervisor/supervisord.conf \
+	&& sed -i "s/{{ SUPERVISOR_PWD }}/${SUPERVISOR_PWD}/g" /etc/supervisor/supervisord.conf \
+	&& chmod 755 /usr/local/bin/* \
+	&& mkdir -p /var/run/sshd /var/log/supervisor /var/run/supervisor \
+	&& mv /bin/systemctl /bin/systemctl.backup \
+	&& apt-get update && apt-get install -y locales && rm -rf /var/lib/apt/lists/* \
     && localedef -i ${LOCALE} -c -f UTF-8 -A /usr/share/locale/locale.alias en_US.UTF-8
 #ENV LANG ${LOCALE}.utf8
 #RUN apt-get -y -qq update && apt-get -y -qq install locales
@@ -68,11 +66,11 @@ RUN apt-get update && apt-get install -y locales && rm -rf /var/lib/apt/lists/* 
 
 # --- 1 Preliminary
 #RUN apt-get -y -qq update && apt-get -y -qq install apt-utils && apt-get -y -qq upgrade
-RUN apt-get -y update && apt-get install -y apt-utils
-RUN echo "${TIMEZONE}" > /etc/timezone && dpkg-reconfigure tzdata
-RUN apt-get -y -qq update && apt-get -y -qq install rsyslog rsyslog-relp logrotate wget curl python-pip screenfetch && pip install supervisor
 # Create the log file to be able to run tail
-RUN touch /var/log/cron.log /var/log/auth.log
+RUN apt-get -y update && apt-get install -y apt-utils \
+	&& echo "${TIMEZONE}" > /etc/timezone && dpkg-reconfigure tzdata \
+	&& apt-get -y -qq update && apt-get -y -qq install rsyslog rsyslog-relp logrotate wget curl python-pip screenfetch && pip install supervisor \
+	&& touch /var/log/cron.log /var/log/auth.log
 
 # --- 2 Install the SSH server MB:external;
 #RUN apt-get -qq update && apt-get -y -qq install ssh openssh-server rsync && \
@@ -83,28 +81,35 @@ RUN touch /var/log/cron.log /var/log/auth.log
 #RUN apt-get -qq update && apt-get -y -qq install nano vim-nox
 
 # --- 5 Update Your Debian Installation
+# --- 8 Install Postfix, Dovecot, MySQL, phpMyAdmin, rkhunter, binutils
 ADD ./fs/etc/apt/sources.list /etc/apt/sources.list
-RUN apt-get -y -qq update && apt-get -y -qq upgrade
+RUN apt-get -y -qq update && apt-get -y -qq upgrade \
+	&& apt-get -y -qq install ntp ntpdate \
+	&& echo "mariadb-server  mariadb-server/root_password_again password ${MYSQL_ROOT_PWD}" | debconf-set-selections \
+	&& echo "mariadb-server  mariadb-server/root_password password ${MYSQL_ROOT_PWD}" | debconf-set-selections \
+	&& echo "mariadb-server-10.0 mysql-server/root_password password ${MYSQL_ROOT_PWD}" | debconf-set-selections \
+	&& echo "mariadb-server-10.0 mysql-server/root_password_again password ${MYSQL_ROOT_PWD}" | debconf-set-selections \
+	&& apt-get -qq update && apt-get -qq -y --force-yes install postfix postfix-mysql postfix-doc mariadb-client mariadb-server openssl getmail4 rkhunter binutils dovecot-imapd dovecot-pop3d dovecot-mysql dovecot-sieve dovecot-lmtpd sudo
 
 # --- 6 Change The Default Shell
 #RUN echo "dash  dash/sh boolean no" | debconf-set-selections
 #RUN dpkg-reconfigure dash
 
 # --- 7 Synchronize the System Clock
-RUN apt-get -qq update && apt-get -y -qq install ntp ntpdate
+#RUN apt-get -qq update && apt-get -y -qq install ntp ntpdate
 
-# --- 8 Install Postfix, Dovecot, MySQL, phpMyAdmin, rkhunter, binutils
-RUN echo "mariadb-server  mariadb-server/root_password_again password ${MYSQL_ROOT_PWD}" | debconf-set-selections
-RUN echo "mariadb-server  mariadb-server/root_password password ${MYSQL_ROOT_PWD}" | debconf-set-selections
-RUN echo "mariadb-server-10.0 mysql-server/root_password password ${MYSQL_ROOT_PWD}" | debconf-set-selections
-RUN echo "mariadb-server-10.0 mysql-server/root_password_again password ${MYSQL_ROOT_PWD}" | debconf-set-selections
-RUN apt-get -qq update && apt-get -qq -y --force-yes install postfix postfix-mysql postfix-doc mariadb-client mariadb-server openssl getmail4 rkhunter binutils dovecot-imapd dovecot-pop3d dovecot-mysql dovecot-sieve dovecot-lmtpd sudo
-ADD ./fs/etc/postfix/master.cf /etc/postfix/master.cf
-RUN sed -i 's/^bind-address/#bind-address/g' /etc/mysql/my.cnf
 # Directory for dump SQL backup
-RUN mkdir -p /var/backups/sql
-RUN service postfix restart && service mysql restart
-
+# --- 10 Install Apache2, PHP5, phpMyAdmin, FCGI, suExec, Pear, And mcrypt
+ADD ./fs/etc/postfix/master.cf /etc/postfix/master.cf
+RUN sed -i 's/^bind-address/#bind-address/g' /etc/mysql/my.cnf \
+	&& mkdir -p /var/backups/sql \
+	&& service postfix restart && service mysql restart \
+	&& echo 'phpmyadmin phpmyadmin/dbconfig-install boolean true' | debconf-set-selections \
+	&& echo 'phpmyadmin phpmyadmin/mysql/admin-pass password pass' | debconf-set-selections \
+	&& echo 'phpmyadmin phpmyadmin/reconfigure-webserver multiselect apache2' | debconf-set-selections \
+	&& service mysql restart \
+	&& echo $(grep $(hostname) /etc/hosts | cut -f1) ${FQDN} >> /etc/hosts && apt-get -qq update && apt-get -y -qq install apache2 apache2.2-common apache2-doc apache2-mpm-prefork apache2-utils libexpat1 ssl-cert libapache2-mod-php5 php5 php5-common php5-gd php5-mysql php5-imap phpmyadmin php5-cli php5-cgi libapache2-mod-fcgid apache2-suexec php-pear php-auth php5-mcrypt mcrypt php5-imagick imagemagick libruby libapache2-mod-python php5-curl php5-intl php5-memcache php5-memcached php5-pspell php5-recode php5-sqlite php5-tidy php5-xmlrpc php5-xsl memcached libapache2-mod-passenger \
+	&& echo "ServerName ${FQDN}" > /etc/apache2/conf-available/servername.conf && a2enconf servername
 # --- 9 Install Amavisd-new, SpamAssassin And Clamav MB;external
 #RUN apt-get -qq update && apt-get -y -qq install amavisd-new spamassassin clamav clamav-daemon zoo unzip bzip2 arj nomarch lzop cabextract apt-listchanges libnet-ldap-perl libauthen-sasl-perl clamav-docs daemon libio-string-perl libio-socket-ssl-perl libnet-ident-perl zip libnet-dns-perl postgrey
 #ADD ./fs/etc/clamav/clamd.conf /etc/clamav/clamd.conf
@@ -123,40 +128,30 @@ RUN service postfix restart && service mysql restart
 #RUN cd /opt && git clone https://github.com/maranda/metronome.git metronome
 #RUN cd /opt/metronome && ./configure --ostype=debian --prefix=/usr && make && make install
 
-# --- 10 Install Apache2, PHP5, phpMyAdmin, FCGI, suExec, Pear, And mcrypt
-RUN echo 'phpmyadmin phpmyadmin/dbconfig-install boolean true' | debconf-set-selections
-RUN echo 'phpmyadmin phpmyadmin/mysql/admin-pass password pass' | debconf-set-selections
-RUN echo 'phpmyadmin phpmyadmin/reconfigure-webserver multiselect apache2' | debconf-set-selections
-RUN service mysql restart
-RUN echo $(grep $(hostname) /etc/hosts | cut -f1) ${FQDN} >> /etc/hosts && apt-get -qq update && apt-get -y -qq install apache2 apache2.2-common apache2-doc apache2-mpm-prefork apache2-utils libexpat1 ssl-cert libapache2-mod-php5 php5 php5-common php5-gd php5-mysql php5-imap phpmyadmin php5-cli php5-cgi libapache2-mod-fcgid apache2-suexec php-pear php-auth php5-mcrypt mcrypt php5-imagick imagemagick libruby libapache2-mod-python php5-curl php5-intl php5-memcache php5-memcached php5-pspell php5-recode php5-sqlite php5-tidy php5-xmlrpc php5-xsl memcached libapache2-mod-passenger
-RUN echo "ServerName ${FQDN}" > /etc/apache2/conf-available/servername.conf && a2enconf servername
+# --- 11 Install Let's Encrypt client (certbot)
+# --- 12.1 PHP-FPM
+# --- 12.2 Install XCache
+# --- 13 Install Mailman
 COPY ./fs/etc/apache2/conf-available/httpoxy.conf /etc/apache2/conf-available/httpoxy.conf
-RUN a2enmod suexec rewrite ssl actions include dav_fs dav auth_digest cgi headers && a2enconf httpoxy && a2dissite 000-default && service apache2 restart
-
+RUN a2enmod suexec rewrite ssl actions include dav_fs dav auth_digest cgi headers && a2enconf httpoxy && a2dissite 000-default && service apache2 restart \
+	&& apt-get -y install python-certbot-apache -t jessie-backports \
+	&& sed -i "s/^exit 101$/exit 0/" /usr/sbin/policy-rc.d \
+	&& apt-get -qq update && apt-get -y -qq install libapache2-mod-fastcgi php5-fpm \
+	&& a2enmod actions fastcgi alias && service apache2 restart \
+	&& apt-get -qq update && apt-get -y -qq install php5-xcache \
+	&& service apache2 restart \
+	&& /bin/bash -c 'echo "mailman	mailman/default_server_language	select	${LOCALE:0:2}" | debconf-set-selections' \
+	&& /bin/bash -c 'echo "mailman	mailman/site_languages	multiselect	${LOCALE:0:2}" | debconf-set-selections' \
+	&& apt-get -qq update && apt-get -y -qq install mailman
 # --- 10.1 Install HHVM (HipHop Virtual Machine) MB:external
 #RUN apt-key adv --recv-keys --keyserver hkp://keyserver.ubuntu.com:80 0x5a16e7281be7a449
 #RUN echo deb http://dl.hhvm.com/debian jessie main | tee /etc/apt/sources.list.d/hhvm.list
 #RUN apt-get -qq update && apt-get -y --force-yes -qq install hhvm
 
-# --- 11 Install Let's Encrypt client (certbot)
-RUN apt-get -y install python-certbot-apache -t jessie-backports
 
-# --- 12.1 PHP-FPM
-RUN sed -i "s/^exit 101$/exit 0/" /usr/sbin/policy-rc.d
-RUN apt-get -qq update && apt-get -y -qq install libapache2-mod-fastcgi php5-fpm
-RUN a2enmod actions fastcgi alias && service apache2 restart
-
-# --- 12.2 Install XCache
-RUN apt-get -qq update && apt-get -y -qq install php5-xcache
-RUN service apache2 restart
-
-# --- 13 Install Mailman
-RUN /bin/bash -c 'echo "mailman	mailman/default_server_language	select	${LOCALE:0:2}" | debconf-set-selections'
-RUN /bin/bash -c 'echo "mailman	mailman/site_languages	multiselect	${LOCALE:0:2}" | debconf-set-selections'
-RUN apt-get -qq update && apt-get -y -qq install mailman
 ADD ./fs/etc/aliases /etc/aliases
-RUN newaliases && service postfix restart
-RUN ln -s /etc/mailman/apache.conf /etc/apache2/conf-available/mailman.conf && a2enconf mailman
+RUN newaliases && service postfix restart \
+	&& ln -s /etc/mailman/apache.conf /etc/apache2/conf-available/mailman.conf && a2enconf mailman
 
 # --- 14 Install PureFTPd And Quota MB:already external (ftp appDef)
 # --cap-add
@@ -193,9 +188,9 @@ RUN apt-get -qq update && apt-get -y -qq install vlogger webalizer awstats geoip
 ADD ./fs/etc/cron.d/awstats /etc/cron.d/
 
 # --- 17 Install Jailkit
-RUN apt-get -qq update && apt-get -y -qq install build-essential autoconf automake libtool flex bison debhelper binutils
-RUN cd /tmp && wget -nv http://olivier.sessink.nl/jailkit/jailkit-2.19.tar.gz && tar xvfz jailkit-2.19.tar.gz && cd jailkit-2.19 && ./debian/rules binary
-RUN cd /tmp && dpkg -i jailkit_2.19-1_*.deb && rm -rf jailkit*
+RUN apt-get -qq update && apt-get -y -qq install build-essential autoconf automake libtool flex bison debhelper binutils \
+	&& cd /tmp && wget -nv http://olivier.sessink.nl/jailkit/jailkit-2.19.tar.gz && tar xvfz jailkit-2.19.tar.gz && cd jailkit-2.19 && ./debian/rules binary \
+	&& cd /tmp && dpkg -i jailkit_2.19-1_*.deb && rm -rf jailkit*
 
 # --- 18 Install fail2ban and UFW Firewall
 #RUN apt-get -qq update && apt-get -y -qq install fail2ban
@@ -208,10 +203,10 @@ RUN cd /tmp && dpkg -i jailkit_2.19-1_*.deb && rm -rf jailkit*
 #RUN apt-get -qq update && apt-get -y -qq install ufw
 
 # --- 19 Install Rainloop
-RUN mkdir -p /usr/share/rainloop && cd /usr/share/rainloop && curl -s http://repository.rainloop.net/installer.php | php
-COPY ./fs/etc/apache2/conf-available/rainloop.conf /etc/apache2/conf-available/rainloop.conf
-RUN chmod 644 /etc/apache2/conf-available/rainloop.conf && a2enconf rainloop
-RUN chown -R www-data: /usr/share/rainloop && find /usr/share/rainloop/ -type d -exec chmod 0755 {} \; && find /usr/share/rainloop/ -type f -exec chmod 0644 {} \;
+#RUN mkdir -p /usr/share/rainloop && cd /usr/share/rainloop && curl -s http://repository.rainloop.net/installer.php | php
+#COPY ./fs/etc/apache2/conf-available/rainloop.conf /etc/apache2/conf-available/rainloop.conf
+#RUN chmod 644 /etc/apache2/conf-available/rainloop.conf && a2enconf rainloop
+#RUN chown -R www-data: /usr/share/rainloop && find /usr/share/rainloop/ -type d -exec chmod 0755 {} \; && find /usr/share/rainloop/ -type f -exec chmod 0644 {} \;
 
 
 
